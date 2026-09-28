@@ -1,0 +1,99 @@
+import QRCode from 'qrcode';
+import { createDrawingSvg, createStep, formatMm, getGeometry, STEP_SIZE } from './geometry.js';
+import './style.css';
+
+const app = document.querySelector('#app');
+
+app.innerHTML = `
+  <header class="topbar">
+    <a class="brand" href="#"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><span>SUBMARK</span></a>
+    <div class="status"><span></span> Lokal verarbeitet</div>
+    <a class="help" href="#hinweise">Druckhinweise <b>↗</b></a>
+  </header>
+  <main>
+    <section class="intro">
+      <div class="eyebrow">3D / QR PRÄGUNG</div>
+      <h1>Codes, die unter<br>der <em>Oberfläche</em> leben.</h1>
+      <p>Erzeuge ein präzises STEP-Modell aus den schwarzen QR-Flächen – exakt 15 × 15 × 1 mm.</p>
+    </section>
+
+    <section class="workspace">
+      <div class="panel input-panel">
+        <div class="panel-heading"><span>01</span><div><h2>Inhalt & Parameter</h2><p>Was soll dein Code enthalten?</p></div></div>
+        <label for="content">TEXT ODER URL <output id="charCount">25 / 1200</output></label>
+        <textarea id="content" maxlength="1200" rows="5" spellcheck="false">https://example.com/produkt</textarea>
+        <div class="quick"><span>SCHNELLWAHL</span><button data-value="https://">URL</button><button data-value="WIFI:S:Netzwerk;T:WPA;P:Passwort;;">WLAN</button><button data-value="BEGIN:VCARD\nVERSION:3.0\nFN:Name\nTEL:+49\nEND:VCARD">VCARD</button><button data-value="mailto:">E-MAIL</button></div>
+        <hr>
+        <div class="field-row">
+          <div><label>MODELLGRÖSSE <span class="tip">i</span></label><p>Fest für den STEP-Export</p></div>
+          <strong>15 × 15 <small>mm</small></strong>
+        </div>
+        <div class="field-row height-row"><div><label>MODELLTIEFE</label><p>Schwarze QR-Flächen</p></div><strong>1,00 <small>mm</small></strong></div>
+        <div class="note"><span>◐</span><p><b>Modell-Hinweis</b>Die STEP-Datei enthält keine Grundplatte und keine weißen Flächen. Sie besteht ausschließlich aus den 1 mm tiefen schwarzen QR-Körpern.</p></div>
+      </div>
+
+      <div class="panel preview-panel">
+        <div class="panel-heading"><span>02</span><div><h2>Technische Skizze</h2><p>Live-Vorschau · Maßstab 1:1</p></div><div class="zoom"><button id="zoomOut">−</button><output id="zoomValue">100%</output><button id="zoomIn">＋</button></div></div>
+        <div class="canvas-wrap"><div id="drawing" class="drawing" aria-live="polite"></div></div>
+        <div class="metrics">
+          <div><span>MODELLMASS</span><strong id="totalSize">—</strong></div>
+          <div><span>RASTER</span><strong id="gridSize">—</strong></div>
+          <div><span>RUHEZONE</span><strong id="quietSize">—</strong></div>
+          <div><span>STEP-MODELL</span><strong>15 × 15 × 1 mm</strong></div>
+        </div>
+        <button id="download" class="download"><span>↓</span><div><b>STEP-MODELL HERUNTERLADEN</b><small>Nur schwarze QR-Flächen · 15 × 15 × 1 mm</small></div><i>↗</i></button>
+      </div>
+    </section>
+
+    <section id="hinweise" class="guide">
+      <div><span>03</span><h2>Damit der Code<br><em>lesbar</em> bleibt.</h2></div>
+      <ol><li><b>01</b><div><strong>Flache Lage</strong><p>Code nicht über Rundungen legen und die Ruhezone freihalten.</p></div></li><li><b>02</b><div><strong>Kontrast erzeugen</strong><p>Matte Oberfläche, Streiflicht oder dunkle Rückseite helfen der Kamera.</p></div></li><li><b>03</b><div><strong>Probedruck scannen</strong><p>Mit mehreren Handys und realem Licht testen, bevor du in Serie gehst.</p></div></li></ol>
+    </section>
+  </main>
+  <footer><span>SUBMARK / 3D CODE TOOL</span><span>QR · EC LEVEL H · ISO/IEC 18004</span></footer>
+`;
+
+const content = document.querySelector('#content');
+const drawing = document.querySelector('#drawing');
+let currentSvg = '';
+let currentStep = '';
+let zoom = 1;
+
+async function render() {
+  const text = content.value || ' ';
+  const qr = QRCode.create(text, { errorCorrectionLevel: 'H' });
+  const matrix = Array.from({ length: qr.modules.size }, (_, y) =>
+    Array.from({ length: qr.modules.size }, (_, x) => qr.modules.get(x, y))
+  );
+  const size = STEP_SIZE / qr.modules.size;
+  const geometry = getGeometry(qr.modules.size, size);
+  currentSvg = createDrawingSvg(matrix, size);
+  currentStep = createStep(matrix);
+  drawing.innerHTML = currentSvg;
+  drawing.style.transform = `scale(${zoom})`;
+  document.querySelector('#charCount').value = `${content.value.length} / 1200`;
+  document.querySelector('#totalSize').textContent = `${formatMm(STEP_SIZE)} × ${formatMm(STEP_SIZE)}`;
+  document.querySelector('#gridSize').textContent = `${qr.modules.size} × ${qr.modules.size}`;
+  document.querySelector('#quietSize').textContent = formatMm(geometry.quietZone);
+}
+
+content.addEventListener('input', render);
+document.querySelectorAll('.quick button').forEach((button) => button.addEventListener('click', () => {
+  content.value = button.dataset.value;
+  content.focus();
+  render();
+}));
+document.querySelector('#zoomOut').addEventListener('click', () => { zoom = Math.max(0.6, zoom - 0.1); updateZoom(); });
+document.querySelector('#zoomIn').addEventListener('click', () => { zoom = Math.min(1.5, zoom + 0.1); updateZoom(); });
+function updateZoom() {
+  drawing.style.transform = `scale(${zoom})`;
+  document.querySelector('#zoomValue').value = `${Math.round(zoom * 100)}%`;
+}
+document.querySelector('#download').addEventListener('click', () => {
+  const blob = new Blob([currentStep], { type: 'application/step' });
+  const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'submark-qr-15x15x1mm.step' });
+  link.click();
+  URL.revokeObjectURL(link.href);
+});
+
+render();
