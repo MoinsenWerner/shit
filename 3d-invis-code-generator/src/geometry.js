@@ -42,3 +42,75 @@ export function createDrawingSvg(matrix, moduleSize, height = 0.1) {
   <g fill="#151a18" font-family="monospace" font-size="2.8"><text x="${left}" y="${top + geometry.totalSize + 8}">MODUL ${formatMm(moduleSize)}  ·  RUHEZONE ${formatMm(geometry.quietZone)}  ·  HÖHE ${formatMm(height)}</text><text x="${left}" y="${top + geometry.totalSize + 13}" fill="#68706c">QR · Fehlerkorrektur H · Maßstab 1:1</text></g>
   </svg>`;
 }
+
+function traceModuleContours(matrix) {
+  const edges = [];
+  const isDark = (x, y) => Boolean(matrix[y]?.[x]);
+  const addEdge = (x1, y1, x2, y2) => edges.push({ start: [x1, y1], end: [x2, y2] });
+
+  matrix.forEach((row, y) => row.forEach((dark, x) => {
+    if (!dark) return;
+    if (!isDark(x, y - 1)) addEdge(x, y, x + 1, y);
+    if (!isDark(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
+    if (!isDark(x, y + 1)) addEdge(x + 1, y + 1, x, y + 1);
+    if (!isDark(x - 1, y)) addEdge(x, y + 1, x, y);
+  }));
+
+  const remaining = new Set(edges.map((_, index) => index));
+  const contours = [];
+  const direction = ([x1, y1], [x2, y2]) => [x2 - x1, y2 - y1];
+  const turnRank = (incoming, outgoing) => {
+    const cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0];
+    const dot = incoming[0] * outgoing[0] + incoming[1] * outgoing[1];
+    if (cross > 0) return 0;
+    if (dot > 0) return 1;
+    if (cross < 0) return 2;
+    return 3;
+  };
+
+  while (remaining.size) {
+    let edgeIndex = remaining.values().next().value;
+    const first = edges[edgeIndex];
+    const contour = [first.start];
+    let current = first;
+    remaining.delete(edgeIndex);
+
+    while (current.end[0] !== contour[0][0] || current.end[1] !== contour[0][1]) {
+      contour.push(current.end);
+      const incoming = direction(current.start, current.end);
+      const candidates = [...remaining].filter((index) => {
+        const start = edges[index].start;
+        return start[0] === current.end[0] && start[1] === current.end[1];
+      });
+      edgeIndex = candidates.sort((a, b) =>
+        turnRank(incoming, direction(edges[a].start, edges[a].end)) -
+        turnRank(incoming, direction(edges[b].start, edges[b].end))
+      )[0];
+      if (edgeIndex === undefined) throw new Error('QR-Kontur konnte nicht geschlossen werden.');
+      current = edges[edgeIndex];
+      remaining.delete(edgeIndex);
+    }
+    const simplified = contour.filter((point, index) => {
+      const previous = contour[(index - 1 + contour.length) % contour.length];
+      const next = contour[(index + 1) % contour.length];
+      return (point[0] - previous[0]) * (next[1] - point[1]) !==
+        (point[1] - previous[1]) * (next[0] - point[0]);
+    });
+    contours.push(simplified);
+  }
+  return contours;
+}
+
+export function createDxf(matrix, moduleSize) {
+  const size = Number(moduleSize);
+  const codeHeight = matrix.length * size;
+  const contours = traceModuleContours(matrix);
+  const entities = contours.map((contour) => {
+    const vertices = contour.map(([x, y]) =>
+      `10\n${(x * size).toFixed(4)}\n20\n${(codeHeight - y * size).toFixed(4)}`
+    ).join('\n');
+    return `0\nLWPOLYLINE\n8\nQR_MODULES\n90\n${contour.length}\n70\n1\n${vertices}`;
+  }).join('\n');
+
+  return `0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\nQR_MODULES\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n${entities}\n0\nENDSEC\n0\nEOF\n`;
+}

@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { createDrawingSvg, formatMm, getGeometry } from './geometry.js';
+import { createDrawingSvg, createDxf, formatMm, getGeometry } from './geometry.js';
 import './style.css';
 
 const app = document.querySelector('#app');
@@ -43,7 +43,7 @@ app.innerHTML = `
           <div><span>RUHEZONE</span><strong id="quietSize">—</strong></div>
           <div><span>PRÄGUNG</span><strong>0,10 mm</strong></div>
         </div>
-        <button id="download" class="download"><span>↓</span><div><b>SVG-SKIZZE HERUNTERLADEN</b><small>Vektor · Maße in Millimeter · CAD-kompatibel</small></div><i>↗</i></button>
+        <button id="download" class="download"><span>↓</span><div><b>DXF-SKIZZE FÜR SOLIDWORKS</b><small>Geschlossene Konturen · Millimeter · direkt extrudierbar</small></div><i>↗</i></button>
       </div>
     </section>
 
@@ -60,6 +60,7 @@ const moduleInput = document.querySelector('#moduleSize');
 const moduleRange = document.querySelector('#moduleRange');
 const drawing = document.querySelector('#drawing');
 let currentSvg = '';
+let currentDxf = '';
 let zoom = 1;
 
 async function render() {
@@ -71,6 +72,7 @@ async function render() {
   const size = Number(moduleInput.value);
   const geometry = getGeometry(qr.modules.size, size);
   currentSvg = createDrawingSvg(matrix, size);
+  currentDxf = createDxf(matrix, size);
   drawing.innerHTML = currentSvg;
   drawing.style.transform = `scale(${zoom})`;
   document.querySelector('#charCount').value = `${content.value.length} / 1200`;
@@ -101,8 +103,8 @@ function updateZoom() {
   document.querySelector('#zoomValue').value = `${Math.round(zoom * 100)}%`;
 }
 document.querySelector('#download').addEventListener('click', () => {
-  const blob = new Blob([currentSvg], { type: 'image/svg+xml' });
-  const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'submark-qr-skizze.svg' });
+  const blob = new Blob([currentDxf], { type: 'application/dxf' });
+  const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'submark-qr-skizze.dxf' });
   link.click();
   URL.revokeObjectURL(link.href);
 });
