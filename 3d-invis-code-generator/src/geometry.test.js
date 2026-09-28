@@ -14,13 +14,15 @@ describe('geometry', () => {
   });
   it('exports merged, closed DXF contours in millimetres', () => {
     const dxf = createDxf([[true, true], [false, true]], 0.8);
-    expect(dxf).toContain('$INSUNITS\n70\n4');
-    expect(dxf).toContain('LWPOLYLINE\n8\nQR_MODULES\n90\n6\n70\n1');
-    expect(dxf).toContain('10\n1.6000\n20\n0.0000');
-    expect(dxf).toMatch(/0\nEOF\n$/);
+    expect(dxf).toContain('$INSUNITS\r\n70\r\n4');
+    expect(dxf).toContain('AcDbEntity\r\n8\r\nQR_MODULES\r\n100\r\nAcDbPolyline');
+    expect(dxf).toContain('90\r\n6\r\n70\r\n1');
+    expect(dxf).toContain('10\r\n1.6000\r\n20\r\n0.0000');
+    expect(dxf).toMatch(/0\r\nEOF\r\n$/);
+    expect(dxf.replaceAll('\r\n', '')).not.toContain('\n');
   });
   it('keeps diagonally touching modules as separate contours', () => {
     const dxf = createDxf([[true, false], [false, true]], 1);
-    expect(dxf.match(/0\nLWPOLYLINE/g)).toHaveLength(2);
+    expect(dxf.match(/0\r\nLWPOLYLINE/g)).toHaveLength(2);
   });
 });

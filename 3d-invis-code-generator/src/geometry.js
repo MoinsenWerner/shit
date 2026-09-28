@@ -104,13 +104,45 @@ function traceModuleContours(matrix) {
 export function createDxf(matrix, moduleSize) {
   const size = Number(moduleSize);
   const codeHeight = matrix.length * size;
+  const codeWidth = Math.max(...matrix.map((row) => row.length), 0) * size;
   const contours = traceModuleContours(matrix);
-  const entities = contours.map((contour) => {
-    const vertices = contour.map(([x, y]) =>
-      `10\n${(x * size).toFixed(4)}\n20\n${(codeHeight - y * size).toFixed(4)}`
-    ).join('\n');
-    return `0\nLWPOLYLINE\n8\nQR_MODULES\n90\n${contour.length}\n70\n1\n${vertices}`;
-  }).join('\n');
+  const lines = [];
+  const group = (code, value) => lines.push(String(code), String(value));
+  const point = (variable, x, y, z = 0) => {
+    group(9, variable);
+    group(10, x.toFixed(4));
+    group(20, y.toFixed(4));
+    group(30, z.toFixed(4));
+  };
 
-  return `0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1015\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n0\nLAYER\n2\nQR_MODULES\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n${entities}\n0\nENDSEC\n0\nEOF\n`;
+  group(0, 'SECTION'); group(2, 'HEADER');
+  group(9, '$ACADVER'); group(1, 'AC1015');
+  group(9, '$HANDSEED'); group(5, 'FFFF');
+  group(9, '$INSUNITS'); group(70, 4);
+  group(9, '$MEASUREMENT'); group(70, 1);
+  point('$EXTMIN', 0, 0);
+  point('$EXTMAX', codeWidth, codeHeight);
+  group(0, 'ENDSEC');
+
+  group(0, 'SECTION'); group(2, 'TABLES');
+  group(0, 'TABLE'); group(2, 'LAYER'); group(5, '2');
+  group(100, 'AcDbSymbolTable'); group(70, 1);
+  group(0, 'LAYER'); group(5, '10');
+  group(100, 'AcDbSymbolTableRecord'); group(100, 'AcDbLayerTableRecord');
+  group(2, 'QR_MODULES'); group(70, 0); group(62, 7); group(6, 'CONTINUOUS');
+  group(0, 'ENDTAB'); group(0, 'ENDSEC');
+
+  group(0, 'SECTION'); group(2, 'ENTITIES');
+  contours.forEach((contour, index) => {
+    group(0, 'LWPOLYLINE'); group(5, (0x100 + index).toString(16).toUpperCase());
+    group(100, 'AcDbEntity'); group(8, 'QR_MODULES');
+    group(100, 'AcDbPolyline'); group(90, contour.length); group(70, 1);
+    contour.forEach(([x, y]) => {
+      group(10, (x * size).toFixed(4));
+      group(20, (codeHeight - y * size).toFixed(4));
+    });
+  });
+  group(0, 'ENDSEC'); group(0, 'EOF');
+
+  return `${lines.join('\r\n')}\r\n`;
 }
