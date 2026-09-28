@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createDrawingSvg, createDxf, formatMm, getGeometry } from './geometry.js';
+import { createDrawingSvg, createStep, formatMm, getGeometry, STEP_DEPTH, STEP_SIZE } from './geometry.js';
 
 describe('geometry', () => {
   it('adds a four-module quiet zone on every side', () => {
@@ -12,17 +12,17 @@ describe('geometry', () => {
     expect(svg).toContain('MODUL 1,0 mm');
     expect(svg).toContain('<path d="M');
   });
-  it('exports merged, closed DXF contours in millimetres', () => {
-    const dxf = createDxf([[true, true], [false, true]], 0.8);
-    expect(dxf).toContain('$INSUNITS\r\n70\r\n4');
-    expect(dxf).toContain('AcDbEntity\r\n8\r\nQR_MODULES\r\n100\r\nAcDbPolyline');
-    expect(dxf).toContain('90\r\n6\r\n70\r\n1');
-    expect(dxf).toContain('10\r\n1.6000\r\n20\r\n0.0000');
-    expect(dxf).toMatch(/0\r\nEOF\r\n$/);
-    expect(dxf.replaceAll('\r\n', '')).not.toContain('\n');
+  it('exports a valid STEP envelope with millimetre units', () => {
+    const step = createStep([[true, true], [false, true]]);
+    expect(STEP_SIZE).toBe(15);
+    expect(STEP_DEPTH).toBe(1);
+    expect(step).toContain("SI_UNIT(.MILLI.,.METRE.)");
+    expect(step).toContain("CARTESIAN_POINT('',(15.000000,15.000000,1.000000))");
+    expect(step).toMatch(/END-ISO-10303-21;\r\n$/);
   });
-  it('keeps diagonally touching modules as separate contours', () => {
-    const dxf = createDxf([[true, false], [false, true]], 1);
-    expect(dxf.match(/0\r\nLWPOLYLINE/g)).toHaveLength(2);
+  it('contains solids only for black horizontal runs', () => {
+    const step = createStep([[true, true], [false, true]]);
+    expect(step.match(/FACETED_BREP/g)).toHaveLength(2);
+    expect(step).not.toContain('QR_RUN_3');
   });
 });

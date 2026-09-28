@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { createDrawingSvg, createDxf, formatMm, getGeometry } from './geometry.js';
+import { createDrawingSvg, createStep, formatMm, getGeometry, STEP_SIZE } from './geometry.js';
 import './style.css';
 
 const app = document.querySelector('#app');
@@ -14,7 +14,7 @@ app.innerHTML = `
     <section class="intro">
       <div class="eyebrow">3D / QR PRÄGUNG</div>
       <h1>Codes, die unter<br>der <em>Oberfläche</em> leben.</h1>
-      <p>Erzeuge eine präzise, bemaßte QR-Skizze für unauffällige 0,1-mm-Prägungen im 3D-Druck.</p>
+      <p>Erzeuge ein präzises STEP-Modell aus den schwarzen QR-Flächen – exakt 15 × 15 × 1 mm.</p>
     </section>
 
     <section class="workspace">
@@ -25,25 +25,23 @@ app.innerHTML = `
         <div class="quick"><span>SCHNELLWAHL</span><button data-value="https://">URL</button><button data-value="WIFI:S:Netzwerk;T:WPA;P:Passwort;;">WLAN</button><button data-value="BEGIN:VCARD\nVERSION:3.0\nFN:Name\nTEL:+49\nEND:VCARD">VCARD</button><button data-value="mailto:">E-MAIL</button></div>
         <hr>
         <div class="field-row">
-          <div><label for="moduleSize">MODULGRÖSSE <span class="tip">i</span></label><p>Breite eines QR-Pixels</p></div>
-          <div class="number"><input id="moduleSize" type="number" value="0.8" min="0.4" max="2" step="0.1"><span>mm</span></div>
+          <div><label>MODELLGRÖSSE <span class="tip">i</span></label><p>Fest für den STEP-Export</p></div>
+          <strong>15 × 15 <small>mm</small></strong>
         </div>
-        <input id="moduleRange" class="range" type="range" value="0.8" min="0.4" max="2" step="0.1">
-        <div class="range-labels"><span>0,4 mm</span><span>2,0 mm</span></div>
-        <div class="field-row height-row"><div><label>PRÄGEHÖHE</label><p>Fest eingestellt</p></div><strong>0,10 <small>mm</small></strong></div>
-        <div class="note"><span>◐</span><p><b>Kontrast-Hinweis</b>Bei halbtransparentem Material ist seitliches Licht oder dunkles Hinterlegen entscheidend. Eine reine 0,1-mm-Prägung ist nicht unter allen Bedingungen scanbar.</p></div>
+        <div class="field-row height-row"><div><label>MODELLTIEFE</label><p>Schwarze QR-Flächen</p></div><strong>1,00 <small>mm</small></strong></div>
+        <div class="note"><span>◐</span><p><b>Modell-Hinweis</b>Die STEP-Datei enthält keine Grundplatte und keine weißen Flächen. Sie besteht ausschließlich aus den 1 mm tiefen schwarzen QR-Körpern.</p></div>
       </div>
 
       <div class="panel preview-panel">
         <div class="panel-heading"><span>02</span><div><h2>Technische Skizze</h2><p>Live-Vorschau · Maßstab 1:1</p></div><div class="zoom"><button id="zoomOut">−</button><output id="zoomValue">100%</output><button id="zoomIn">＋</button></div></div>
         <div class="canvas-wrap"><div id="drawing" class="drawing" aria-live="polite"></div></div>
         <div class="metrics">
-          <div><span>GESAMTMASS</span><strong id="totalSize">—</strong></div>
+          <div><span>MODELLMASS</span><strong id="totalSize">—</strong></div>
           <div><span>RASTER</span><strong id="gridSize">—</strong></div>
           <div><span>RUHEZONE</span><strong id="quietSize">—</strong></div>
-          <div><span>PRÄGUNG</span><strong>0,10 mm</strong></div>
+          <div><span>STEP-MODELL</span><strong>15 × 15 × 1 mm</strong></div>
         </div>
-        <button id="download" class="download"><span>↓</span><div><b>DXF-SKIZZE FÜR SOLIDWORKS</b><small>Geschlossene Konturen · Millimeter · direkt extrudierbar</small></div><i>↗</i></button>
+        <button id="download" class="download"><span>↓</span><div><b>STEP-MODELL HERUNTERLADEN</b><small>Nur schwarze QR-Flächen · 15 × 15 × 1 mm</small></div><i>↗</i></button>
       </div>
     </section>
 
@@ -56,11 +54,9 @@ app.innerHTML = `
 `;
 
 const content = document.querySelector('#content');
-const moduleInput = document.querySelector('#moduleSize');
-const moduleRange = document.querySelector('#moduleRange');
 const drawing = document.querySelector('#drawing');
 let currentSvg = '';
-let currentDxf = '';
+let currentStep = '';
 let zoom = 1;
 
 async function render() {
@@ -69,28 +65,19 @@ async function render() {
   const matrix = Array.from({ length: qr.modules.size }, (_, y) =>
     Array.from({ length: qr.modules.size }, (_, x) => qr.modules.get(x, y))
   );
-  const size = Number(moduleInput.value);
+  const size = STEP_SIZE / qr.modules.size;
   const geometry = getGeometry(qr.modules.size, size);
   currentSvg = createDrawingSvg(matrix, size);
-  currentDxf = createDxf(matrix, size);
+  currentStep = createStep(matrix);
   drawing.innerHTML = currentSvg;
   drawing.style.transform = `scale(${zoom})`;
   document.querySelector('#charCount').value = `${content.value.length} / 1200`;
-  document.querySelector('#totalSize').textContent = `${formatMm(geometry.totalSize)} × ${formatMm(geometry.totalSize)}`;
+  document.querySelector('#totalSize').textContent = `${formatMm(STEP_SIZE)} × ${formatMm(STEP_SIZE)}`;
   document.querySelector('#gridSize').textContent = `${qr.modules.size} × ${qr.modules.size}`;
   document.querySelector('#quietSize').textContent = formatMm(geometry.quietZone);
 }
 
-function setSize(value) {
-  const safe = Math.min(2, Math.max(0.4, Number(value) || 0.8));
-  moduleInput.value = safe.toFixed(1);
-  moduleRange.value = safe;
-  render();
-}
-
 content.addEventListener('input', render);
-moduleInput.addEventListener('change', (event) => setSize(event.target.value));
-moduleRange.addEventListener('input', (event) => setSize(event.target.value));
 document.querySelectorAll('.quick button').forEach((button) => button.addEventListener('click', () => {
   content.value = button.dataset.value;
   content.focus();
@@ -103,8 +90,8 @@ function updateZoom() {
   document.querySelector('#zoomValue').value = `${Math.round(zoom * 100)}%`;
 }
 document.querySelector('#download').addEventListener('click', () => {
-  const blob = new Blob([currentDxf], { type: 'application/dxf' });
-  const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'submark-qr-skizze.dxf' });
+  const blob = new Blob([currentStep], { type: 'application/step' });
+  const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'submark-qr-15x15x1mm.step' });
   link.click();
   URL.revokeObjectURL(link.href);
 });

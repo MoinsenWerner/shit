@@ -43,106 +43,92 @@ export function createDrawingSvg(matrix, moduleSize, height = 0.1) {
   </svg>`;
 }
 
-function traceModuleContours(matrix) {
-  const edges = [];
-  const isDark = (x, y) => Boolean(matrix[y]?.[x]);
-  const addEdge = (x1, y1, x2, y2) => edges.push({ start: [x1, y1], end: [x2, y2] });
+export const STEP_SIZE = 15;
+export const STEP_DEPTH = 1;
 
-  matrix.forEach((row, y) => row.forEach((dark, x) => {
-    if (!dark) return;
-    if (!isDark(x, y - 1)) addEdge(x, y, x + 1, y);
-    if (!isDark(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
-    if (!isDark(x, y + 1)) addEdge(x + 1, y + 1, x, y + 1);
-    if (!isDark(x - 1, y)) addEdge(x, y + 1, x, y);
-  }));
-
-  const remaining = new Set(edges.map((_, index) => index));
-  const contours = [];
-  const direction = ([x1, y1], [x2, y2]) => [x2 - x1, y2 - y1];
-  const turnRank = (incoming, outgoing) => {
-    const cross = incoming[0] * outgoing[1] - incoming[1] * outgoing[0];
-    const dot = incoming[0] * outgoing[0] + incoming[1] * outgoing[1];
-    if (cross > 0) return 0;
-    if (dot > 0) return 1;
-    if (cross < 0) return 2;
-    return 3;
+export function createStep(matrix) {
+  const entities = [];
+  const add = (value) => {
+    entities.push(value);
+    return `#${entities.length}`;
+  };
+  const point = (x, y, z) => add(`CARTESIAN_POINT('',(${x.toFixed(6)},${y.toFixed(6)},${z.toFixed(6)}))`);
+  const cuboid = (x1, y1, x2, y2, index) => {
+    const coordinates = [
+      [x1, y1, 0], [x2, y1, 0], [x2, y2, 0], [x1, y2, 0],
+      [x1, y1, STEP_DEPTH], [x2, y1, STEP_DEPTH],
+      [x2, y2, STEP_DEPTH], [x1, y2, STEP_DEPTH],
+    ];
+    const points = coordinates.map(([x, y, z]) => point(x, y, z));
+    const vertices = points.map((item) => add(`VERTEX_POINT('',${item})`));
+    const edgePairs = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const edges = edgePairs.map(([start, end]) => {
+      const delta = coordinates[end].map((value, axis) => value - coordinates[start][axis]);
+      const length = Math.hypot(...delta);
+      const direction = add(`DIRECTION('',(${delta.map((value) => (value / length).toFixed(6)).join(',')}))`);
+      const vector = add(`VECTOR('',${direction},${length.toFixed(6)})`);
+      const line = add(`LINE('',${points[start]},${vector})`);
+      return add(`EDGE_CURVE('',${vertices[start]},${vertices[end]},${line},.T.)`);
+    });
+    const faceDefinitions = [
+      { edgeUses: [[3, false], [2, false], [1, false], [0, false]], origin: 0, normal: [0, 0, -1], ref: [1, 0, 0] },
+      { edgeUses: [[4, true], [5, true], [6, true], [7, true]], origin: 4, normal: [0, 0, 1], ref: [1, 0, 0] },
+      { edgeUses: [[0, true], [9, true], [4, false], [8, false]], origin: 0, normal: [0, -1, 0], ref: [1, 0, 0] },
+      { edgeUses: [[1, true], [10, true], [5, false], [9, false]], origin: 1, normal: [1, 0, 0], ref: [0, 1, 0] },
+      { edgeUses: [[2, true], [11, true], [6, false], [10, false]], origin: 2, normal: [0, 1, 0], ref: [-1, 0, 0] },
+      { edgeUses: [[3, true], [8, true], [7, false], [11, false]], origin: 3, normal: [-1, 0, 0], ref: [0, -1, 0] },
+    ];
+    const faces = faceDefinitions.map(({ edgeUses, origin, normal, ref }) => {
+      const orientedEdges = edgeUses.map(([edgeIndex, forward]) =>
+        add(`ORIENTED_EDGE('',*,*,${edges[edgeIndex]},.${forward ? 'T' : 'F'}.)`)
+      );
+      const loop = add(`EDGE_LOOP('',(${orientedEdges.join(',')}))`);
+      const bound = add(`FACE_OUTER_BOUND('',${loop},.T.)`);
+      const normalDirection = add(`DIRECTION('',(${normal.map((value) => value.toFixed(1)).join(',')}))`);
+      const refDirection = add(`DIRECTION('',(${ref.map((value) => value.toFixed(1)).join(',')}))`);
+      const placement = add(`AXIS2_PLACEMENT_3D('',${points[origin]},${normalDirection},${refDirection})`);
+      const plane = add(`PLANE('',${placement})`);
+      return add(`FACE_SURFACE('',(${bound}),${plane},.T.)`);
+    });
+    const shell = add(`CLOSED_SHELL('',(${faces.join(',')}))`);
+    return add(`FACETED_BREP('QR_RUN_${index}',${shell})`);
   };
 
-  while (remaining.size) {
-    let edgeIndex = remaining.values().next().value;
-    const first = edges[edgeIndex];
-    const contour = [first.start];
-    let current = first;
-    remaining.delete(edgeIndex);
+  const appContext = add("APPLICATION_CONTEXT('configuration controlled 3d designs of mechanical parts and assemblies')");
+  add(`APPLICATION_PROTOCOL_DEFINITION('international standard','config_control_design',1994,${appContext})`);
+  const designContext = add(`DESIGN_CONTEXT('',${appContext},'design')`);
+  const mechanicalContext = add(`MECHANICAL_CONTEXT('',${appContext},'mechanical')`);
+  const product = add(`PRODUCT('SUBMARK_QR','SUBMARK_QR','QR code solids',(${mechanicalContext}))`);
+  const formation = add(`PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('1','',${product},.NOT_KNOWN.)`);
+  const definition = add(`PRODUCT_DEFINITION('design','',${formation},${designContext})`);
+  const definitionShape = add(`PRODUCT_DEFINITION_SHAPE('','',${definition})`);
+  const lengthUnit = add('(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))');
+  const angleUnit = add('(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.))');
+  const solidAngleUnit = add('(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT())');
+  const uncertainty = add(`UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.001),${lengthUnit},'distance_accuracy_value','')`);
+  const geometryContext = add(`(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((${uncertainty}))GLOBAL_UNIT_ASSIGNED_CONTEXT((${lengthUnit},${angleUnit},${solidAngleUnit}))REPRESENTATION_CONTEXT('',''))`);
 
-    while (current.end[0] !== contour[0][0] || current.end[1] !== contour[0][1]) {
-      contour.push(current.end);
-      const incoming = direction(current.start, current.end);
-      const candidates = [...remaining].filter((index) => {
-        const start = edges[index].start;
-        return start[0] === current.end[0] && start[1] === current.end[1];
-      });
-      edgeIndex = candidates.sort((a, b) =>
-        turnRank(incoming, direction(edges[a].start, edges[a].end)) -
-        turnRank(incoming, direction(edges[b].start, edges[b].end))
-      )[0];
-      if (edgeIndex === undefined) throw new Error('QR-Kontur konnte nicht geschlossen werden.');
-      current = edges[edgeIndex];
-      remaining.delete(edgeIndex);
+  const moduleSize = STEP_SIZE / matrix.length;
+  const solids = [];
+  matrix.forEach((row, y) => {
+    let start = -1;
+    for (let x = 0; x <= row.length; x += 1) {
+      if (row[x] && start < 0) start = x;
+      if ((!row[x] || x === row.length) && start >= 0) {
+        solids.push(cuboid(
+          start * moduleSize,
+          STEP_SIZE - (y + 1) * moduleSize,
+          x * moduleSize,
+          STEP_SIZE - y * moduleSize,
+          solids.length + 1
+        ));
+        start = -1;
+      }
     }
-    const simplified = contour.filter((point, index) => {
-      const previous = contour[(index - 1 + contour.length) % contour.length];
-      const next = contour[(index + 1) % contour.length];
-      return (point[0] - previous[0]) * (next[1] - point[1]) !==
-        (point[1] - previous[1]) * (next[0] - point[0]);
-    });
-    contours.push(simplified);
-  }
-  return contours;
-}
-
-export function createDxf(matrix, moduleSize) {
-  const size = Number(moduleSize);
-  const codeHeight = matrix.length * size;
-  const codeWidth = Math.max(...matrix.map((row) => row.length), 0) * size;
-  const contours = traceModuleContours(matrix);
-  const lines = [];
-  const group = (code, value) => lines.push(String(code), String(value));
-  const point = (variable, x, y, z = 0) => {
-    group(9, variable);
-    group(10, x.toFixed(4));
-    group(20, y.toFixed(4));
-    group(30, z.toFixed(4));
-  };
-
-  group(0, 'SECTION'); group(2, 'HEADER');
-  group(9, '$ACADVER'); group(1, 'AC1015');
-  group(9, '$HANDSEED'); group(5, 'FFFF');
-  group(9, '$INSUNITS'); group(70, 4);
-  group(9, '$MEASUREMENT'); group(70, 1);
-  point('$EXTMIN', 0, 0);
-  point('$EXTMAX', codeWidth, codeHeight);
-  group(0, 'ENDSEC');
-
-  group(0, 'SECTION'); group(2, 'TABLES');
-  group(0, 'TABLE'); group(2, 'LAYER'); group(5, '2');
-  group(100, 'AcDbSymbolTable'); group(70, 1);
-  group(0, 'LAYER'); group(5, '10');
-  group(100, 'AcDbSymbolTableRecord'); group(100, 'AcDbLayerTableRecord');
-  group(2, 'QR_MODULES'); group(70, 0); group(62, 7); group(6, 'CONTINUOUS');
-  group(0, 'ENDTAB'); group(0, 'ENDSEC');
-
-  group(0, 'SECTION'); group(2, 'ENTITIES');
-  contours.forEach((contour, index) => {
-    group(0, 'LWPOLYLINE'); group(5, (0x100 + index).toString(16).toUpperCase());
-    group(100, 'AcDbEntity'); group(8, 'QR_MODULES');
-    group(100, 'AcDbPolyline'); group(90, contour.length); group(70, 1);
-    contour.forEach(([x, y]) => {
-      group(10, (x * size).toFixed(4));
-      group(20, (codeHeight - y * size).toFixed(4));
-    });
   });
-  group(0, 'ENDSEC'); group(0, 'EOF');
+  const representation = add(`SHAPE_REPRESENTATION('',(${solids.join(',')}),${geometryContext})`);
+  add(`SHAPE_DEFINITION_REPRESENTATION(${definitionShape},${representation})`);
 
-  return `${lines.join('\r\n')}\r\n`;
+  const body = entities.map((entity, index) => `#${index + 1}=${entity};`).join('\r\n');
+  return `ISO-10303-21;\r\nHEADER;\r\nFILE_DESCRIPTION(('SUBMARK QR CODE 15 X 15 X 1 MM'),'2;1');\r\nFILE_NAME('submark-qr.step','',('SUBMARK'),('SUBMARK'),'SUBMARK','SUBMARK','');\r\nFILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));\r\nENDSEC;\r\nDATA;\r\n${body}\r\nENDSEC;\r\nEND-ISO-10303-21;\r\n`;
 }

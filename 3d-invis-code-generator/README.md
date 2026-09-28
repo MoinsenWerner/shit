@@ -1,11 +1,10 @@
 # SUBMARK – 3D-Code-Generator
 
-Ein lokaler QR-Code-Generator für bemaßte Vorschauen und DXF-Skizzen. Text, URLs, WLAN-Daten und
+Ein lokaler QR-Code-Generator für bemaßte Vorschauen und STEP-Modelle. Text, URLs, WLAN-Daten und
 vCards werden mit Fehlerkorrekturstufe H kodiert. Modulgröße, Ruhezone, Gesamtmaß
-und die vorgesehene Präge-Höhe von 0,1 mm werden in der Vorschau angegeben. Der
-DXF-Download enthält geschlossene, in Millimetern angelegte QR-Konturen auf dem
-Layer `QR_MODULES`. Er lässt sich in SolidWorks als 2D-Skizze öffnen oder in eine
-bestehende Skizze importieren und anschließend auftragen beziehungsweise ausschneiden.
+und die Modellmaße werden in der Vorschau angegeben. Der STEP-Download enthält
+ausschließlich die schwarzen QR-Flächen als 1 mm tiefe Volumenkörper. Das gesamte
+QR-Modell misst exakt 15 × 15 × 1 mm; weiße Module und Ruhezone bleiben leer.
 
 ## Unter Windows starten
 
